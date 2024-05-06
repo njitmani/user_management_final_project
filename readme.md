@@ -10,6 +10,8 @@ Checkout more details - [About the Project](about.md)🔥🌟
 
 Out of all the provided [Features to Select From](features.md) 🛠️ I have opted to implement the below feature:
 
+
+
 ##### 👤 User Profile Management
 
 ## Project required details:
