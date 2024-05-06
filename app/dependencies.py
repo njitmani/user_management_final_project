@@ -1,7 +1,6 @@
 from builtins import Exception, dict, list, str
 import uuid
 from fastapi import Depends, HTTPException, Header, Cookie, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import Database
 from app.utils.template_manager import TemplateManager
@@ -30,16 +29,16 @@ async def get_db() -> AsyncSession:
 
 
 async def get_current_user(
-    access_token: str = Cookie(None),
+    access_token: str = Cookie(None),  
     authorization: str = Header(None)
 ):
     print(f"Access token: {access_token}")
     print(f"Authorization header: {authorization}")
 
-    if access_token is None and authorization is None:
+    if not access_token and not authorization:
         return None
 
-    if access_token is None:
+    if not access_token:
         # Extract the token from the Authorization header
         scheme, _, param = authorization.partition(" ")
         if scheme.lower() != "bearer":
@@ -49,23 +48,23 @@ async def get_current_user(
     try:
         payload = decode_token(access_token)
         print(f"Decoded payload: {payload}")
-        if payload is None:
+        if not payload:
             return None
         user_role: str = payload.get("role")
         user_id_string = payload.get("user_id")
-        user_id = uuid.UUID(user_id_string) 
+        user_id = uuid.UUID(user_id_string)
         user_email: str = payload.get("sub")
         print(f"User ID in the payload is: {user_id}")
-        if user_role is None or user_id is None:
+        if not user_role or not user_id:
             return None
         return {"sub": user_email, "role": user_role, "user_id": user_id}
     except Exception as e:
-        print(f"Error decoding token: {str(e)}") 
+        print(f"Error decoding token: {str(e)}")
         return None
 
 def require_role(roles: list[str]):
     def role_checker(current_user: dict = Depends(get_current_user)):
-        if current_user["role"] not in roles:
+        if not current_user or current_user["role"] not in roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
         return current_user
     return role_checker
