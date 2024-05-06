@@ -151,7 +151,7 @@ async def test_create_user_successfully(db_session: AsyncSession, email_service:
         "nickname": "User_1",
         "first_name": "User",
         "last_name": "One",
-        "bio": "Experienced software developer specializing in web applications.",
+        "bio": "Developer",
         "profile_picture_url": "https://example.com/profiles/john.jpg",
         "linkedin_profile_url": "https://linkedin.com/in/johndoe",
         "github_profile_url": "https://github.com/johndoe",
