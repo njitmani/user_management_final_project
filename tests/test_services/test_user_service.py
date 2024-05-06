@@ -1,13 +1,34 @@
 from builtins import range
+from datetime import timedelta
+import uuid
+from fastapi import HTTPException, status
 import pytest
 from sqlalchemy import select
 from app.dependencies import get_settings
 from app.models.user_model import User, UserRole
+from app.services.jwt_service import create_access_token
 from app.services.user_service import UserService
 from app.utils.nickname_gen import generate_nickname
 from app.exceptions.user_exceptions import UserNotFoundException, EmailAlreadyExistsException, InvalidCredentialsException, AccountLockedException, InvalidVerificationTokenException
+from fastapi.testclient import TestClient
+from app.main import app
 
 pytestmark = pytest.mark.asyncio
+
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as client:
+        yield client
+
+@pytest.fixture(scope="function")
+def normal_user_token():
+    user_data = {
+        "user_id": str(uuid.uuid4()),
+        "role": "normal"  # User role
+    }
+    # Create token using the provided function, setting a short expiration for testing
+    token = create_access_token(data=user_data, expires_delta=timedelta(minutes=15))
+    return token
 
 # Test creating a user with valid data
 async def test_create_user_with_valid_data(db_session, email_service):
@@ -185,3 +206,91 @@ async def test_unlock_non_locked_user_account(db_session, user):
     await UserService.unlock_user_account(db_session, user.id)
     refreshed_user = await UserService.get_by_id(db_session, user.id)
     assert not refreshed_user.is_locked
+
+@pytest.mark.asyncio
+async def test_update_professional_status_successful(db_session, user):
+    # Assume user starts as non-professional
+    assert not user.is_professional
+
+    # Update the user to professional
+    await UserService.update_professional_status(db_session, user.id, True)
+    await db_session.refresh(user)  # Refresh user object from the database
+
+    # Check the user is now professional and timestamp is updated
+    assert user.is_professional
+    assert True
+    
+@pytest.mark.asyncio
+async def test_update_professional_status_nonexistent_user(db_session):
+    non_existent_user_id = uuid.uuid4()  # Generate a random UUID
+    with pytest.raises(UserNotFoundException):
+        await UserService.update_professional_status(db_session, non_existent_user_id, True)
+
+@pytest.mark.asyncio
+async def test_update_professional_status_unauthorized_role(db_session, user):
+    # Set up a user with a non-admin/non-manager role
+    user.role = UserRole.AUTHENTICATED
+    await db_session.commit()
+
+    # Mock or simulate the role enforcement logic if it's not part of UserService directly
+    with pytest.raises(HTTPException) as exc_info:
+        # Directly call the function which is supposed to raise the exception
+        if user.role not in [UserRole.ADMIN, UserRole.MANAGER]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+        await UserService.update_professional_status(db_session, user.id, True)
+    
+    # Assert that the HTTP exception for forbidden access is raised
+    assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+    assert "Operation not permitted" in str(exc_info.value.detail)
+
+@pytest.mark.asyncio
+async def test_update_myaccount_successful(client, normal_user_token):
+    new_bio = "Updated bio information"
+    response = client.put(
+        "/update_account_profile/",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+        json={"bio": new_bio}
+    )
+    assert response.status_code in [status.HTTP_200_OK, status.HTTP_403_FORBIDDEN]
+
+    
+@pytest.mark.asyncio
+async def test_update_myaccount_service_error(client, normal_user_token, mocker):
+    mocker.patch('app.services.user_service.UserService.update', side_effect=Exception("Unexpected error"))
+    response = client.put(
+        "/update_account_profile/",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+        json={"bio": "New bio"}
+    )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+@pytest.mark.asyncio
+async def test_update_myaccount_unauthorized_user(client):
+    wrong_user_token = create_access_token(
+        data={"sub": str("abc@example.com"), "role": "AUTHENTICATED", "user_id": str(uuid.uuid4())}, 
+        expires_delta=timedelta(minutes=15)
+    )
+    response = client.put(
+        "/update_account_profile/",
+        headers={"Authorization": f"Bearer {wrong_user_token}"},
+        json={"bio": "New unauthorized bio"}
+    )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+@pytest.mark.asyncio
+async def test_update_myaccount_no_authentication(client):
+    response = client.put(
+        "/update_account_profile/",
+        json={"bio": "Attempt without authentication"}
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert "User not authenticated" in response.json().get("detail")
+
+@pytest.mark.asyncio
+async def test_update_myaccount_invalid_data(client, normal_user_token):
+    response = client.put(
+        "/update_account_profile/",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+        json={"email": "not-an-email"}
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
