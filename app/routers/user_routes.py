@@ -215,67 +215,6 @@ async def login(
     except AccountLockedException as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     
-@router.get(
-        "/myaccount", 
-        response_model=UserResponse, 
-        tags=["My Account"]
-        )
-async def myaccount(
-    request: Request,
-    session: AsyncSession = Depends(get_db),
-    db: AsyncSession = Depends(get_db),
-    token: str = Depends(oauth2_scheme), 
-    current_user: dict = Depends(get_current_user)):
-    
-    print(f"What is my current user data: {current_user}")
-    if current_user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-    return UserResponse.model_construct(
-        id=current_user["user_id"],
-        role=current_user["role"],
-        email=current_user["sub"],
-
-    )
-
-@router.put(
-        "/myaccount/", 
-        response_model=UserResponse, 
-        name="update_myaccount", 
-        tags=["My Account"]
-        )
-async def update_myaccount(
-    user_update: UserUpdate, 
-    request: Request, 
-    db: AsyncSession = Depends(get_db), 
-    current_user: dict = Depends(get_current_user)):
-    
-    try:
-        user_data = user_update.model_dump(exclude_unset=True)
-        user_id = current_user["user_id"]
-        updated_user = await UserService.update(db, user_id, user_data)
-        return UserResponse.model_construct(
-            id=updated_user.id,
-            bio=updated_user.bio,
-            first_name=updated_user.first_name,
-            last_name=updated_user.last_name,
-            nickname=updated_user.nickname,
-            email=updated_user.email,
-            role=updated_user.role,
-            last_login_at=updated_user.last_login_at,
-            profile_picture_url=updated_user.profile_picture_url,
-            github_profile_url=updated_user.github_profile_url,
-            linkedin_profile_url=updated_user.linkedin_profile_url,
-            created_at=updated_user.created_at,
-            updated_at=updated_user.updated_at,
-            links=create_user_links(updated_user.id, request)
-        )
-    except UserNotFoundException as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
-
-
-
 @router.post(
         "/login_with_form/", 
         include_in_schema=False, tags=["Login and Registration"])
@@ -314,3 +253,70 @@ async def verify_email(user_id: UUID, token: str, db: AsyncSession = Depends(get
     except UserNotFoundException as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
+
+@router.patch(
+    "/update_professional_status/{user_id}",
+    status_code=status.HTTP_200_OK,
+    name="update_professional_status",
+    tags=["User Management Requires (Admin or Manager Roles)"]
+)
+async def update_professional_status(
+    user_id: UUID,
+    professional_status: bool,
+    session: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+    current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))
+):
+    
+    if current_user["role"] not in ["ADMIN", "MANAGER"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+    
+    try:
+        await UserService.update_professional_status(db, user_id, professional_status)
+    except UserNotFoundException as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.put("/update_account_profile/", response_model=UserResponse, name="update_account_profile", tags=["User Profile"])
+async def update_myaccount(
+    user_update: UserUpdate, 
+    request: Request, 
+    db: AsyncSession = Depends(get_db), 
+    current_user: dict = Depends(get_current_user)
+    ):
+    
+    if current_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not authenticated")
+
+    user_id = current_user["user_id"]
+    
+    # Check if the user is attempting to update their own profile
+    if user_update.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot update another user's profile")
+    
+    
+    try:
+        user_data = user_update.model_dump(exclude_unset=True)
+        user_id = current_user["user_id"]
+        updated_user = await UserService.update(db, user_id, user_data)
+        return UserResponse.model_construct(
+            id=updated_user.id,
+            bio=updated_user.bio,
+            first_name=updated_user.first_name,
+            last_name=updated_user.last_name,
+            nickname=updated_user.nickname,
+            email=updated_user.email,
+            role=updated_user.role,
+            last_login_at=updated_user.last_login_at,
+            profile_picture_url=updated_user.profile_picture_url,
+            github_profile_url=updated_user.github_profile_url,
+            linkedin_profile_url=updated_user.linkedin_profile_url,
+            created_at=updated_user.created_at,
+            updated_at=updated_user.updated_at,
+            links=create_user_links(updated_user.id, request)
+        )
+    except UserNotFoundException as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
