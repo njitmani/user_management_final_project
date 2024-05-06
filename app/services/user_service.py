@@ -165,3 +165,26 @@ class UserService(DbService):
         user.failed_login_attempts = 0
         session.add(user)
         await session.commit()
+
+    @classmethod
+    async def update_professional_status(
+        cls,
+        session: AsyncSession,
+        user_id: UUID,
+        professional_status: bool
+    ) -> None:
+        """
+        Update the professional status of a user.
+
+        Args:
+            session (AsyncSession): The async session to use for the database operation.
+            user_id (UUID): The ID of the user whose professional status needs to be updated.
+            professional_status (bool): The new professional status of the user.
+
+        Returns:
+            None: This function does not return anything.
+        """
+        user = await cls.get_by_id(session, user_id)
+        user.is_professional = professional_status
+        session.add(user)
+        await session.commit()

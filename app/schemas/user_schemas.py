@@ -38,6 +38,7 @@ class UserCreate(UserBase):
     password: str = Field(..., example="Secure*1234")
 
 class UserUpdate(UserBase):
+    id: Optional[uuid.UUID] = Field(None, include=False)
     email: Optional[EmailStr] = Field(None, example="john.doe@example.com")
     nickname: Optional[str] = Field(None, min_length=3, pattern=r'^[\w-]+$', example="john_doe123")
     first_name: Optional[str] = Field(None, example="John")
