@@ -1,8 +1,13 @@
+import re
 import uuid
 import pytest
 from pydantic import ValidationError
 from datetime import datetime
+from app.models.user_model import UserRole
 from app.schemas.user_schemas import UserBase, UserCreate, UserUpdate, UserResponse, UserListResponse, LoginRequest
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.email_service import EmailService
+from app.services.user_service import UserService
 
 # Fixtures for common test data
 @pytest.fixture
@@ -108,3 +113,55 @@ def test_user_base_url_invalid(url, user_base_data):
     user_base_data["profile_picture_url"] = url
     with pytest.raises(ValidationError):
         UserBase(**user_base_data)
+
+
+@pytest.mark.asyncio
+async def test_create_user_without_nickname(db_session: AsyncSession, email_service: EmailService):
+    user_data = {
+        "email": "test@example.com",
+        "password": "StrongPassword!"
+    }
+    user = await UserService.create(db_session, user_data, email_service)
+    assert user.nickname is not None  # Check nickname was generated
+    assert re.match(r'^[\w-]+$', user.nickname)  # Check the nickname format
+    assert len(user.nickname) >= 3  # Check nickname length is at least 3
+
+@pytest.mark.asyncio
+async def test_create_user_with_short_nickname(db_session: AsyncSession, email_service: EmailService):
+    user_data = {
+        "email": "User1@example.com",
+        "nickname": "us",
+        "first_name": "User",
+        "last_name": "One",
+        "bio": "Experienced software developer specializing in web applications.",
+        "profile_picture_url": "https://example.com/profiles/john.jpg",
+        "linkedin_profile_url": "https://linkedin.com/in/johndoe",
+        "github_profile_url": "https://github.com/johndoe",
+        "role": "ANONYMOUS",
+        "password": "12345"
+    }
+    with pytest.raises(ValueError) as exc_info:
+        await UserService.create(db_session, user_data, email_service)
+    assert "Nickname must be at least 3 characters long" in str(exc_info.value)
+
+@pytest.mark.asyncio
+async def test_create_user_successfully(db_session: AsyncSession, email_service: EmailService):
+    user_data = {
+        "email": "User1@example.com",
+        "nickname": "User_1",
+        "first_name": "User",
+        "last_name": "One",
+        "bio": "Experienced software developer specializing in web applications.",
+        "profile_picture_url": "https://example.com/profiles/john.jpg",
+        "linkedin_profile_url": "https://linkedin.com/in/johndoe",
+        "github_profile_url": "https://github.com/johndoe",
+        "role": "ANONYMOUS",
+        "password": "12345"
+    }
+    user = await UserService.create(db_session, user_data, email_service)
+    assert user.email == "test@example.com"
+    assert user.nickname == "validNickname"
+    assert user.first_name == "John"
+    assert user.last_name == "Doe"
+    assert user.bio == "Developer"
+    assert user.role in [UserRole.AUTHENTICATED, UserRole.MANAGER, UserRole.ADMIN]
