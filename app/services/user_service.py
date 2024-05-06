@@ -1,6 +1,7 @@
 from builtins import Exception, bool, classmethod, int, len, str
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
+from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import update, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,10 +51,21 @@ class UserService(DbService):
             
             validated_data['hashed_password'] = hash_password(validated_data.pop('password'))
             new_user = User(**validated_data)
-            new_nickname = generate_nickname()
-            while await cls.get_by_nickname(session, new_nickname):
-                new_nickname = generate_nickname()
-            new_user.nickname = new_nickname
+            
+            # Handling nickname field
+            nickname = validated_data.get('nickname')
+            if not nickname:
+                # Generate a new nickname if not provided or empty
+                nickname = generate_nickname()
+            elif len(nickname) < 3:
+                # Raise error if nickname is too short
+                raise HTTPException(status_code=400, detail="Nickname must be at least 3 characters long.")
+
+            # Ensure nickname uniqueness
+            while await cls.get_by_nickname(session, nickname):
+                nickname = generate_nickname()
+
+            validated_data['nickname'] = nickname
             user_count = await cls.count(session)
             new_user.role = UserRole.ADMIN if user_count == 0 else UserRole.ANONYMOUS            
             if new_user.role == UserRole.ADMIN:
@@ -67,6 +79,8 @@ class UserService(DbService):
                 await email_service.send_verification_email(new_user)
             return new_user
         except ValidationError as e:
+            raise e
+        except ValueError as e:
             raise e
 
     @classmethod
